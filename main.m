@@ -210,30 +210,31 @@ double rollingResistanceCoefficientFromStimpmeter(double stimpmeterInFeet)
 
 BOOL puttWillBeMade(State state, Vector3D holeLocation)
 {
+    ///TODO: Check and see if the putt will enter the hole or lip out
+    /* Not sure of the physics of this, maybe check and see if the vertical drop of the ball given the chord across the hole formed */
+    /* For now, return true for all balls that are within the hole */
     
+    static double holeRadiusSq = 0.1143 * 0.1143; /* meters */
+    Vector3D ballToHole = Vector3DSubtract(state.x, holeLocation);
+    double distanceToHoleSq = Vector3DLengthSq(ballToHole);
     
-    return true;
+    return distanceToHoleSq < holeRadiusSq;
 }
 
 Vector3D finalPositionAfterPutt(State initialState, Vector3D holeLocation)
 {
     State state = initialState;
     
-    double holeRadius = 0.1143; /* meters */
-    double holeRadiusSq = holeRadius * holeRadius;
-    while (Vector3DLengthSq(state.v) > 0.01)
+    double dt = 0.1;
+    double velocitySqTolerance = 0.001;
+    
+    while (Vector3DLengthSq(state.v) > velocitySqTolerance)
     {
-        state = integrate(state, 0.1);
-        Vector3D ballToHole = Vector3DSubtract(state.x, holeLocation);
-        double distanceToHoleSq = Vector3DLengthSq(ballToHole);
-        
-        if (distanceToHoleSq < holeRadiusSq)
+        state = integrate(state, dt);
+        if (puttWillBeMade(state, holeLocation))
         {
-            if (puttWillBeMade(state, holeLocation))
-            {
-                state.x = holeLocation;
-                state.v = Vector3DMake(0, 0, 0);
-            }
+            state.x = holeLocation;
+            state.v = Vector3DMake(0, 0, 0);
         }
     }
     
