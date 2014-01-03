@@ -96,6 +96,36 @@ Vector3D Vector3DProject(Vector3D vectorToProject, Vector3D vectorToProjectOnto)
     return Vector3DMultiply(normalizedVectorToProjectOnto, scalar);
 }
 
+#pragma mark - Line
+
+typedef struct Line3D
+{
+    Vector3D origin;
+    Vector3D direction;
+    
+} Line3D;
+
+Line3D Line3DMake(Vector3D origin, Vector3D direction)
+{
+    Line3D line;
+    line.origin = origin;
+    line.direction = direction;
+    
+    return line;
+}
+
+double Line3DDistanceFromLine(Line3D line, Vector3D point)
+{
+    Vector3D secondPointOnLine = Vector3DAdd(line.origin, line.direction);
+    
+    Vector3D x0_x1 = Vector3DSubtract(point, line.origin);
+    Vector3D x0_x2 = Vector3DSubtract(point, secondPointOnLine);
+    Vector3D x2_x1 = Vector3DSubtract(secondPointOnLine, line.origin);
+    Vector3D x0_x1_X_x0_x2 = Vector3DCross(x0_x1, x0_x2);
+    
+    return Vector3DLength(x0_x1_X_x0_x2) / Vector3DLength(x2_x1);
+}
+
 #pragma mark - Statistical Functions
 
 double drand48WithStandardNormalDistribution()
@@ -210,27 +240,33 @@ double rollingResistanceCoefficientFromStimpmeter(double stimpmeterInFeet)
 
 BOOL puttWillBeMade(State state, Vector3D holeLocation)
 {
-    ///TODO: Check and see if the putt will enter the hole or lip out
-    /* Not sure of the physics of this, maybe check and see if the vertical drop of the ball given the chord across the hole formed */
-    /* For now, return true for all balls that are within the hole */
+    /* Based on the following paper: http://puttingzone.com/Science/cjp-putting.pdf */
+    ///TODO: Modify the capture equation for sloped greens */
     
     static double holeRadiusSq = 0.1143 * 0.1143; /* meters */
     Vector3D ballToHole = Vector3DSubtract(state.x, holeLocation);
     double distanceToHoleSq = Vector3DLengthSq(ballToHole);
     
-    return distanceToHoleSq < holeRadiusSq;
+    if (distanceToHoleSq > holeRadiusSq)
+    {
+        return false;
+    }
+    
+    Line3D ballPath = Line3DMake(state.x, state.v);
+    double impactParameter = Line3DDistanceFromLine(ballPath, holeLocation);
+    
+    return Vector3DLength(state.v) < 1.63 - 1.63 * impactParameter * impactParameter / holeRadiusSq;
 }
 
-Vector3D finalPositionAfterPutt(State initialState, Vector3D holeLocation)
+Vector3D finalPositionAfterPutt(State initialState, Vector3D holeLocation, double speedToStopSimulating, double dt)
 {
     State state = initialState;
+    double speedToStopSimulatingSq = speedToStopSimulating * speedToStopSimulating;
     
-    double dt = 0.1;
-    double velocitySqTolerance = 0.001;
-    
-    while (Vector3DLengthSq(state.v) > velocitySqTolerance)
+    while (Vector3DLengthSq(state.v) > speedToStopSimulatingSq)
     {
         state = integrate(state, dt);
+        
         if (puttWillBeMade(state, holeLocation))
         {
             state.x = holeLocation;
@@ -298,8 +334,12 @@ int main(int argc, const char * argv[])
     
     Vector3D initialPosition = Vector3DMake(0, 0, 0);
     Vector3D initialVelocity = Vector3DMultiply(forwardDirection, initialSpeedInMPerS);
+    State initialState = StateMake(initialPosition, initialVelocity);
+    Vector3D infiniteHoleLocation = Vector3DMake(INFINITY, INFINITY, INFINITY);
+    double maxSpeedAtWhichPuttCanBeMade = 1.63; /* Taken from http://puttingzone.com/Science/cjp-putting.pdf */
+    double dt = 0.01;
     
-    Vector3D holeLocationInMeters = finalPositionAfterPutt(StateMake(initialPosition, initialVelocity), Vector3DMake(INFINITY, INFINITY, INFINITY));
+    Vector3D holeLocationInMeters = finalPositionAfterPutt(initialState, infiniteHoleLocation, maxSpeedAtWhichPuttCanBeMade/2.0, dt);
     Vector3D holeLocationInFeet = Vector3DMultiply(holeLocationInMeters, 1.0/0.3048);
     
     printf("The hole is located at the following position (ft): %lf, %lf, %lf.\n", holeLocationInFeet.x, holeLocationInFeet.y, holeLocationInFeet.z);
@@ -312,7 +352,12 @@ int main(int argc, const char * argv[])
         double speedVariation = drand48WithStandardNormalDistribution()*initialSpeedStdDevInMPerS;
         double initialSpeed = initialSpeedInMPerS + speedVariation;
         Vector3D initialVelocity = Vector3DMultiply(Vector3DRotateAroundAxisAngle(forwardDirection, normalDirection, angleVariation), initialSpeed);
-        Vector3D finalPositon = finalPositionAfterPutt(StateMake(initialPosition, initialVelocity), holeLocationInMeters);
+        Vector3D initialPosition = Vector3DMake(0, 0, 0);
+        State initialState = StateMake(initialPosition, initialVelocity);
+        double dt = 0.1;
+        double finalSpeed = 0.1;
+        
+        Vector3D finalPositon = finalPositionAfterPutt(initialState, holeLocationInMeters, finalSpeed, dt);
         
         sumDistanceFromHoleInFeet += Vector3DLength(Vector3DSubtract(finalPositon, holeLocationInMeters))/0.3048;
         
